@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: 'Next.js 16 Template',
-    description: 'Template for projects at @titanom',
+    title: 'Mikhail Snake',
+    description: '🐍 The legendary Mikhail Snake game',
     icons: { icon: '/favicon.ico' },
   };
 }
