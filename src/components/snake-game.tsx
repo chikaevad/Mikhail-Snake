@@ -58,6 +58,7 @@ export function SnakeGame() {
   const livesRef = useRef(3);
   const faceRef = useRef<HTMLImageElement | null>(null);
   const tearTickRef = useRef(0);
+  const gameOverFrameRef = useRef(0);
   const olivesEatenRef = useRef(0);
   const bonusOliveRef = useRef<Pt | null>(null);
   const bonusTicksRef = useRef(0);
@@ -90,6 +91,7 @@ export function SnakeGame() {
     scoreRef.current = 0;
     livesRef.current = 3;
     olivesEatenRef.current = 0;
+    gameOverFrameRef.current = 0;
     phaseRef.current = 'playing';
     setPhase('playing');
   }, [respawn]);
@@ -579,6 +581,93 @@ export function SnakeGame() {
       ctx.font = '9px "Press Start 2P", monospace';
       ctx.fillStyle = `rgba(180,180,255,${0.45 + p * 0.55})`;
       ctx.fillText('PRESS RESTART TO PLAY AGAIN', W / 2, textY + 86);
+
+      // ── Pixel punishment dialog box ──
+      const PUNISH_LINES = [
+        'OH NOOOO,',
+        'NOW YOU NEED TO',
+        'DO AN ISO AUDIT',
+        'AGAIN.',
+      ];
+      const TOTAL_CHARS = PUNISH_LINES.reduce((s, l) => s + l.length, 0);
+      // Typewriter starts after 50 frames delay, reveals 1 char every 4 frames
+      const charsToShow = Math.min(
+        TOTAL_CHARS,
+        Math.max(0, Math.floor((gameOverFrameRef.current - 50) / 4)),
+      );
+
+      const BOX_W = 344;
+      const BOX_H = 108;
+      const bx = Math.round(W / 2 - BOX_W / 2);
+      const by = textY + 116;
+
+      // Black drop shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(bx + 4, by + 4, BOX_W, BOX_H);
+
+      // Outer black border (3px)
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(bx - 3, by - 3, BOX_W + 6, BOX_H + 6);
+
+      // White pixel border
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx, by, BOX_W, 4);
+      ctx.fillRect(bx, by + BOX_H - 4, BOX_W, 4);
+      ctx.fillRect(bx, by, 4, BOX_H);
+      ctx.fillRect(bx + BOX_W - 4, by, 4, BOX_H);
+
+      // Dark interior fill
+      ctx.fillStyle = '#04041c';
+      ctx.fillRect(bx + 4, by + 4, BOX_W - 8, BOX_H - 8);
+
+      // Blue inner border (2px)
+      ctx.fillStyle = '#3344aa';
+      ctx.fillRect(bx + 4, by + 4, BOX_W - 8, 2);
+      ctx.fillRect(bx + 4, by + BOX_H - 6, BOX_W - 8, 2);
+      ctx.fillRect(bx + 4, by + 4, 2, BOX_H - 8);
+      ctx.fillRect(bx + BOX_W - 6, by + 4, 2, BOX_H - 8);
+
+      // Pixel corner diamonds
+      ctx.fillStyle = '#ffdd44';
+      for (const [cx2, cy2] of [[bx+1, by+1],[bx+BOX_W-5,by+1],[bx+1,by+BOX_H-5],[bx+BOX_W-5,by+BOX_H-5]] as [number,number][]) {
+        ctx.fillRect(cx2+1, cy2, 2, 1);
+        ctx.fillRect(cx2, cy2+1, 4, 1);
+        ctx.fillRect(cx2+1, cy2+2, 2, 1);
+      }
+
+      // Typewriter text
+      ctx.font = '8px "Press Start 2P", monospace';
+      ctx.textAlign = 'left';
+      let remaining = charsToShow;
+      for (let li = 0; li < PUNISH_LINES.length && remaining > 0; li++) {
+        const line = PUNISH_LINES[li]!;
+        const visible = line.slice(0, remaining);
+        // First line yellow, rest white
+        ctx.fillStyle = li === 0 ? '#ffdd44' : '#ddddff';
+        ctx.fillText(visible, bx + 14, by + 22 + li * 20);
+        remaining -= line.length;
+      }
+
+      // Blinking cursor while typing or at end
+      const cursorOn = Math.floor(t / 400) % 2 === 0;
+      if (cursorOn && gameOverFrameRef.current > 50) {
+        let cursorX = bx + 14;
+        let cursorY = by + 22;
+        let rem2 = charsToShow;
+        for (let li = 0; li < PUNISH_LINES.length; li++) {
+          const line = PUNISH_LINES[li]!;
+          if (rem2 <= line.length) {
+            ctx.font = '8px "Press Start 2P", monospace';
+            cursorX = bx + 14 + ctx.measureText(line.slice(0, rem2)).width + 2;
+            cursorY = by + 22 + li * 20;
+            break;
+          }
+          rem2 -= line.length;
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cursorX, cursorY - 7, 6, 9);
+      }
+
       ctx.textAlign = 'left';
     }
 
@@ -695,6 +784,7 @@ export function SnakeGame() {
       }
 
       if (p === 'over') {
+        gameOverFrameRef.current++;
         for (let i = snakeRef.current.length - 1; i >= 1; i--)
           drawSegment(snakeRef.current[i]!, i, snakeRef.current.length);
         drawHead(snakeRef.current[0]!, true, t);
