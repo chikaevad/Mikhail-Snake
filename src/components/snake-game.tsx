@@ -489,25 +489,96 @@ export function SnakeGame() {
 
     // ── Game Over overlay ─────────────────────────────────────────────────
     function drawGameOver(t: number) {
-      ctx.fillStyle = 'rgba(0,0,0,0.74)';
+      ctx.fillStyle = 'rgba(0,0,0,0.80)';
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
       const p = Math.abs(Math.sin(t * 0.0015));
+
+      // ── Big crying face ──
+      const FR = 88; // face radius
+      const fcx = W / 2;
+      const fcy = H * 0.29;
+
+      // Blue sad glow ring behind face
+      ctx.shadowColor = '#4488ff';
+      ctx.shadowBlur = 28 + p * 14;
+      ctx.strokeStyle = '#3366cc';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(fcx, fcy, FR + 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Face clipped to circle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(fcx, fcy, FR, 0, Math.PI * 2);
+      ctx.clip();
+      if (faceRef.current) {
+        const iw = faceRef.current.naturalWidth || faceRef.current.width;
+        const ih = faceRef.current.naturalHeight || faceRef.current.height;
+        ctx.drawImage(
+          faceRef.current,
+          iw * FACE_SX, ih * FACE_SY, iw * FACE_SW, ih * FACE_SH,
+          fcx - FR, fcy - FR, FR * 2, FR * 2,
+        );
+      } else {
+        ctx.fillStyle = '#c8956c';
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Animated tears
+      tearTickRef.current++;
+      const tf = tearTickRef.current;
+      const tw = FR * 0.28;
+
+      // Standing tear pools on cheeks
+      ctx.fillStyle = 'rgba(160,220,255,0.9)';
+      ctx.beginPath();
+      ctx.ellipse(fcx - tw, fcy + FR * 0.2, FR * 0.07, FR * 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(fcx + tw, fcy + FR * 0.2, FR * 0.07, FR * 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Falling drops
+      const drop = (ox: number, phase: number) => {
+        const pp = ((tf + phase) % 65) / 65;
+        ctx.globalAlpha = (1 - pp) * 0.95;
+        ctx.fillStyle = '#aaddff';
+        ctx.shadowColor = '#88ccff';
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.ellipse(fcx + ox, fcy + FR * 0.28 + pp * FR * 1.3, FR * 0.055, FR * 0.12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      };
+      drop(-tw, 0);
+      drop(tw, 22);
+      drop(-tw * 1.4, 40);
+      drop(tw * 1.4, 55);
+      drop(-tw * 0.4, 12);
+      drop(tw * 0.6, 47);
+
+      // ── Text below face ──
+      const textY = fcy + FR + 52;
 
       ctx.font = '28px "Press Start 2P", monospace';
       ctx.shadowColor = '#ff0000';
       ctx.shadowBlur = 18 + p * 12;
       ctx.fillStyle = `rgb(255,${Math.floor(50 + p * 30)},${Math.floor(50 + p * 30)})`;
-      ctx.fillText('GAME OVER', W / 2, H / 2 - 55);
+      ctx.fillText('GAME OVER', W / 2, textY);
       ctx.shadowBlur = 0;
 
       ctx.font = '12px "Press Start 2P", monospace';
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(`SCORE: ${scoreRef.current}`, W / 2, H / 2 - 12);
+      ctx.fillText(`SCORE: ${scoreRef.current}`, W / 2, textY + 46);
 
       ctx.font = '9px "Press Start 2P", monospace';
       ctx.fillStyle = `rgba(180,180,255,${0.45 + p * 0.55})`;
-      ctx.fillText('PRESS RESTART TO PLAY AGAIN', W / 2, H / 2 + 28);
+      ctx.fillText('PRESS RESTART TO PLAY AGAIN', W / 2, textY + 86);
       ctx.textAlign = 'left';
     }
 
