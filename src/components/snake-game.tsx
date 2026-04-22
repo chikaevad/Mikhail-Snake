@@ -2,14 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const CELL = 30;
+const CELL = 38;
 const COLS = 20;
 const ROWS = 20;
 const W = COLS * CELL;
 const H = ROWS * CELL;
+const HEAD_R = Math.round(CELL * 0.82); // visual radius — bigger than one cell
 const BASE_SPEED = 160;
 const MIN_SPEED = 70;
+const BONUS_EVERY = 3;   // giant olive appears every N olives eaten
+const BONUS_TICKS = 55;  // disappears after this many game ticks (~9 s)
 const FACE_SRC = 'https://avatars.githubusercontent.com/u/103834747?v=4';
+// Source crop: square region covering just the face (top-center 78% of avatar)
+const FACE_SX = 0.11;
+const FACE_SY = 0.0;
+const FACE_SW = 0.78;
+const FACE_SH = 0.78;
 
 type Dir = 'U' | 'D' | 'L' | 'R';
 type Pt = { x: number; y: number };
@@ -50,6 +58,9 @@ export function SnakeGame() {
   const livesRef = useRef(3);
   const faceRef = useRef<HTMLImageElement | null>(null);
   const tearTickRef = useRef(0);
+  const olivesEatenRef = useRef(0);
+  const bonusOliveRef = useRef<Pt | null>(null);
+  const bonusTicksRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [highScore, setHighScore] = useState(0);
@@ -69,6 +80,8 @@ export function SnakeGame() {
     nextDirRef.current = 'R';
     foodRef.current = randFood(snakeRef.current);
     tearTickRef.current = 0;
+    bonusOliveRef.current = null;
+    bonusTicksRef.current = 0;
   }, []);
 
   const startGame = useCallback(() => {
@@ -76,6 +89,7 @@ export function SnakeGame() {
     respawn();
     scoreRef.current = 0;
     livesRef.current = 3;
+    olivesEatenRef.current = 0;
     phaseRef.current = 'playing';
     setPhase('playing');
   }, [respawn]);
@@ -172,15 +186,20 @@ export function SnakeGame() {
     function drawHead(pt: Pt, crying: boolean, t: number) {
       const cx = pt.x * CELL + CELL / 2;
       const cy = pt.y * CELL + CELL / 2;
-      const r = CELL / 2 - 1;
 
-      // Clip to circle and draw face
+      // Clip to circle and draw face — source-cropped to just the face area
       ctx.save();
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.arc(cx, cy, HEAD_R, 0, Math.PI * 2);
       ctx.clip();
       if (faceRef.current) {
-        ctx.drawImage(faceRef.current, pt.x * CELL + 1, pt.y * CELL + 1, CELL - 2, CELL - 2);
+        const iw = faceRef.current.naturalWidth || faceRef.current.width;
+        const ih = faceRef.current.naturalHeight || faceRef.current.height;
+        ctx.drawImage(
+          faceRef.current,
+          iw * FACE_SX, ih * FACE_SY, iw * FACE_SW, ih * FACE_SH,
+          cx - HEAD_R, cy - HEAD_R, HEAD_R * 2, HEAD_R * 2,
+        );
       } else {
         ctx.fillStyle = '#c8956c';
         ctx.fill();
@@ -189,11 +208,11 @@ export function SnakeGame() {
 
       // Glowing border
       ctx.shadowColor = '#00ff55';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 12;
       ctx.strokeStyle = '#2a7a2a';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.arc(cx, cy, HEAD_R, 0, Math.PI * 2);
       ctx.stroke();
       ctx.shadowBlur = 0;
 
@@ -201,14 +220,15 @@ export function SnakeGame() {
       if (crying) {
         tearTickRef.current++;
         const tf = tearTickRef.current;
+        const tw = HEAD_R * 0.27; // horizontal offset of tears from centre
 
-        // Standing tears pooling on cheeks
+        // Standing tear pools on cheeks
         ctx.fillStyle = 'rgba(160,220,255,0.88)';
         ctx.beginPath();
-        ctx.ellipse(cx - 5, cy + 5, 2.2, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx - tw, cy + HEAD_R * 0.18, 3, 4, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.ellipse(cx + 5, cy + 5, 2.2, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + tw, cy + HEAD_R * 0.18, 3, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
         // Animated falling drops
@@ -217,14 +237,14 @@ export function SnakeGame() {
           ctx.globalAlpha = (1 - p) * 0.9;
           ctx.fillStyle = '#99ddff';
           ctx.beginPath();
-          ctx.ellipse(cx + ox, cy + 7 + p * 32, 2.2, 4, 0, 0, Math.PI * 2);
+          ctx.ellipse(cx + ox, cy + HEAD_R * 0.25 + p * 40, 3, 5, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
         };
-        drop(-5, 0);
-        drop(5, 18);
-        drop(-7, 33);
-        drop(6, 46);
+        drop(-tw, 0);
+        drop(tw, 18);
+        drop(-tw - 4, 33);
+        drop(tw + 4, 46);
       }
     }
 
@@ -240,64 +260,216 @@ export function SnakeGame() {
       ctx.scale(pulse, pulse);
 
       // Drop shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
       ctx.beginPath();
-      ctx.ellipse(2, 3, CELL * 0.36, CELL * 0.42, 0, 0, Math.PI * 2);
+      ctx.ellipse(3, 4, CELL * 0.48, CELL * 0.56, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Olive body with radial gradient
-      const g = ctx.createRadialGradient(-4, -5, 2, 0, 0, CELL * 0.4);
+      const g = ctx.createRadialGradient(-5, -7, 2, 0, 0, CELL * 0.52);
       g.addColorStop(0, '#6aaa3a');
       g.addColorStop(0.6, '#3d6a1a');
       g.addColorStop(1, '#1e3a0a');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.ellipse(0, 0, CELL * 0.36, CELL * 0.43, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, CELL * 0.46, CELL * 0.54, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Red pimento center
       ctx.fillStyle = '#dd2222';
       ctx.beginPath();
-      ctx.ellipse(0, 0, CELL * 0.13, CELL * 0.13, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, CELL * 0.17, CELL * 0.17, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Specular highlight
       ctx.fillStyle = 'rgba(255,255,255,0.28)';
       ctx.beginPath();
-      ctx.ellipse(-4, -5, 4, 3, -0.4, 0, Math.PI * 2);
+      ctx.ellipse(-5, -7, 5, 4, -0.4, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
     }
 
-    // ── HUD: lives + score ────────────────────────────────────────────────
-    function drawHUD() {
-      // Face-icon lives
-      for (let i = 0; i < 3; i++) {
-        const active = i < livesRef.current;
-        const lx = 10 + i * (CELL + 5);
-        const ly = 8;
+    // ── Giant bonus olive ─────────────────────────────────────────────────
+    function drawGiantOlive(pos: Pt, ticksLeft: number, t: number) {
+      const cx = pos.x * CELL + CELL / 2;
+      const cy = pos.y * CELL + CELL / 2;
+
+      // Pulse speed increases as timer runs out
+      const urgency = 1 - ticksLeft / BONUS_TICKS;
+      const pulseFreq = 0.004 + urgency * 0.014;
+      const pulse = 1 + Math.sin(t * pulseFreq) * (0.1 + urgency * 0.08);
+      const bob = Math.sin(t * 0.003) * 3;
+
+      // Sparkle stars that spin around
+      const starCount = 6;
+      for (let s = 0; s < starCount; s++) {
+        const angle = (t * 0.0018) + (s / starCount) * Math.PI * 2;
+        const dist = CELL * 0.9 + Math.sin(t * 0.005 + s) * 4;
+        const sx = cx + Math.cos(angle) * dist;
+        const sy = cy + bob + Math.sin(angle) * dist * 0.6;
+        const starSize = 5 + Math.sin(t * 0.006 + s * 1.3) * 2;
+        const alpha = 0.6 + Math.sin(t * 0.007 + s) * 0.4;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = s % 2 === 0 ? '#ffee44' : '#ffffff';
+        // 4-pointed star
         ctx.save();
-        ctx.globalAlpha = active ? 1 : 0.28;
+        ctx.translate(sx, sy);
+        ctx.rotate(t * 0.003 + s);
         ctx.beginPath();
-        ctx.arc(lx + CELL / 2, ly + CELL / 2, CELL / 2 - 1, 0, Math.PI * 2);
-        ctx.clip();
-        if (faceRef.current) {
-          ctx.drawImage(faceRef.current, lx, ly, CELL, CELL);
-        } else {
-          ctx.fillStyle = active ? '#dd5533' : '#555';
-          ctx.fill();
+        for (let p = 0; p < 4; p++) {
+          const a = (p / 4) * Math.PI * 2;
+          const oa = a + Math.PI / 4;
+          ctx.lineTo(Math.cos(a) * starSize, Math.sin(a) * starSize);
+          ctx.lineTo(Math.cos(oa) * starSize * 0.4, Math.sin(oa) * starSize * 0.4);
         }
+        ctx.closePath();
+        ctx.fill();
         ctx.restore();
-        ctx.strokeStyle = active ? '#00ff66' : '#444';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = active ? '#00ff44' : 'transparent';
-        ctx.shadowBlur = active ? 6 : 0;
-        ctx.beginPath();
-        ctx.arc(lx + CELL / 2, ly + CELL / 2, CELL / 2 - 1, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.save();
+      ctx.translate(cx, cy + bob);
+      ctx.scale(pulse * 1.85, pulse * 1.85); // 1.85× regular olive size
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(3, 5, CELL * 0.48, CELL * 0.56, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Golden-green body gradient
+      const g = ctx.createRadialGradient(-6, -8, 3, 0, 0, CELL * 0.54);
+      g.addColorStop(0, '#aadd44');
+      g.addColorStop(0.5, '#5a9a22');
+      g.addColorStop(1, '#2a5a0a');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, CELL * 0.46, CELL * 0.54, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Golden ring
+      ctx.strokeStyle = '#ffdd00';
+      ctx.lineWidth = 2.5 / pulse;
+      ctx.shadowColor = '#ffcc00';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, CELL * 0.46, CELL * 0.54, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Golden pimento
+      ctx.fillStyle = '#ffaa00';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, CELL * 0.18, CELL * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(-6, -8, 6, 4, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+
+      // Timer bar above the olive — shrinks as time runs out
+      const barW = CELL * 1.6;
+      const barH = 5;
+      const bx = cx - barW / 2;
+      const by = cy + bob - CELL * 1.05;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath();
+      ctx.roundRect(bx, by, barW, barH, 2);
+      ctx.fill();
+      const frac = ticksLeft / BONUS_TICKS;
+      const barColor = frac > 0.5 ? '#44ff44' : frac > 0.25 ? '#ffcc00' : '#ff4444';
+      ctx.fillStyle = barColor;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, barW * frac, barH, 2);
+      ctx.fill();
+
+      // "BONUS" label
+      ctx.font = `bold 9px "Press Start 2P", monospace`;
+      ctx.fillStyle = '#ffee44';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ff8800';
+      ctx.shadowBlur = 6;
+      ctx.fillText('BONUS', cx, by - 3);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left';
+    }
+
+    // ── HUD: lives + score ────────────────────────────────────────────────
+    // 8-bit pixel heart grid (12 cols × 10 rows)
+    const HEART_GRID = [
+      [0,0,1,1,0,0,0,0,1,1,0,0],
+      [0,1,1,1,1,0,0,1,1,1,1,0],
+      [1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1],
+      [0,1,1,1,1,1,1,1,1,1,1,0],
+      [0,0,1,1,1,1,1,1,1,1,0,0],
+      [0,0,0,1,1,1,1,1,1,0,0,0],
+      [0,0,0,0,1,1,1,1,0,0,0,0],
+      [0,0,0,0,0,1,1,0,0,0,0,0],
+    ];
+    // White highlight pixels (upper-right bump) [row, col]
+    const HEART_HL = [[1,8],[1,9],[2,8]];
+    const PS = 4; // canvas px per "game pixel"
+    const HW = 12 * PS; // 48px
+    const HH = 10 * PS; // 40px
+
+    function drawPixelHeart(lx: number, ty: number, active: boolean) {
+      const HROWS = HEART_GRID.length;
+      const HCOLS = (HEART_GRID[0] as number[]).length;
+
+      // Black outline: expand each filled pixel by 1 canvas px on all sides
+      ctx.fillStyle = '#000000';
+      for (let r = 0; r < HROWS; r++) {
+        for (let c = 0; c < HCOLS; c++) {
+          if ((HEART_GRID[r] as number[])[c] === 1) {
+            ctx.fillRect(lx + c * PS - 1, ty + r * PS - 1, PS + 2, PS + 2);
+          }
+        }
+      }
+
+      // Colored fill: shading by row
+      for (let r = 0; r < HROWS; r++) {
+        for (let c = 0; c < HCOLS; c++) {
+          if ((HEART_GRID[r] as number[])[c] === 1) {
+            if (!active) {
+              ctx.fillStyle = '#2a1020';
+            } else if (r <= 2) {
+              ctx.fillStyle = '#ee3344';
+            } else if (r <= 5) {
+              ctx.fillStyle = '#cc1122';
+            } else {
+              ctx.fillStyle = '#991133';
+            }
+            ctx.fillRect(lx + c * PS, ty + r * PS, PS, PS);
+          }
+        }
+      }
+
+      // White highlight on active hearts
+      if (active) {
+        ctx.fillStyle = '#ffffff';
+        for (const pos of HEART_HL) {
+          const r = pos[0]!;
+          const c = pos[1]!;
+          if ((HEART_GRID[r] as number[])?.[c] === 1) {
+            ctx.fillRect(lx + c * PS, ty + r * PS, PS, PS);
+          }
+        }
+      }
+    }
+
+    function drawHUD() {
+      // Pixel heart lives
+      const GAP = 10;
+      for (let i = 0; i < 3; i++) {
+        drawPixelHeart(10 + i * (HW + GAP), 8, i < livesRef.current);
       }
 
       // Score panel
@@ -407,19 +579,45 @@ export function SnakeGame() {
               respawn();
             }
           } else {
-            const ate = nh.x === foodRef.current.x && nh.y === foodRef.current.y;
+            const ateRegular = nh.x === foodRef.current.x && nh.y === foodRef.current.y;
+            const ateBonus =
+              bonusOliveRef.current !== null &&
+              nh.x === bonusOliveRef.current.x &&
+              nh.y === bonusOliveRef.current.y;
+
             snakeRef.current = [nh, ...snakeRef.current];
-            if (!ate) {
+            if (!ateRegular && !ateBonus) {
               snakeRef.current.pop();
-            } else {
+            }
+            if (ateRegular) {
               scoreRef.current += 10;
+              olivesEatenRef.current++;
               foodRef.current = randFood(snakeRef.current);
+              if (olivesEatenRef.current % BONUS_EVERY === 0 && bonusOliveRef.current === null) {
+                bonusOliveRef.current = randFood([...snakeRef.current, foodRef.current]);
+                bonusTicksRef.current = BONUS_TICKS;
+              }
+            }
+            if (ateBonus) {
+              scoreRef.current += 50;
+              bonusOliveRef.current = null;
+              bonusTicksRef.current = 0;
+            }
+
+            // Bonus timer countdown
+            if (bonusOliveRef.current !== null) {
+              bonusTicksRef.current--;
+              if (bonusTicksRef.current <= 0) {
+                bonusOliveRef.current = null;
+              }
             }
           }
         }
 
         for (let i = snakeRef.current.length - 1; i >= 1; i--)
           drawSegment(snakeRef.current[i]!, i, snakeRef.current.length);
+        if (bonusOliveRef.current !== null)
+          drawGiantOlive(bonusOliveRef.current, bonusTicksRef.current, t);
         drawHead(snakeRef.current[0]!, false, t);
         drawOlive(foodRef.current, t);
         drawHUD();
